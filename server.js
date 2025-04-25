@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import axios from "axios";
+import data from "./data.js";
 
 dotenv.config();
 
@@ -30,17 +31,53 @@ app.post("/api/generate", async (req, res) => {
         });
     }
 
+    const keywords = prompt.toLowerCase().split(" ");
+
+    let systemPrompts = data
+        .filter((item) =>
+            item.tags?.split(" ").some((tag) => keywords.includes(tag))
+        )
+        .map((item) => item.content);
+
+    const chatbotInfoItem = data.find(
+        (item) => item.name === "Chatbot Information"
+    );
+    const chatbotInfo = chatbotInfoItem ? chatbotInfoItem.content : "";
+
+    if (chatbotInfo) {
+        systemPrompts.unshift(chatbotInfo);
+    }
+
+    //If no matches, use all data
+    if (systemPrompts.length === 1 && chatbotInfo) {
+        systemPrompts = data.map((item) => item.content);
+    }
+
+    console.log(
+        "Selected object names:",
+        data
+            .filter((item) => 
+                item.tags?.split(" ").some((tag) => keywords.includes(tag))
+        )
+        .map((item) => item.name)
+    );
+
     try {
+        const messages = [
+            {
+                role: "system",
+                content: 
+                    "You are Sigmund, a programming chatbot created by Glenda, dedicated to addressing Sigma School or tech-related issues. Always respond in a friendly, casual manner.",
+            },
+            ...systemPrompts.map((content) => ({ role: "system",
+            content })),
+            { role: "user", content: prompt },
+        ];
+
         const response = await axios.post("https://api.openai.com/v1/chat/completions",
             {
                 model: "gpt-4",
-                messages: [
-                    {
-                        role: "system",
-                        content: "You are Sigmund, a programming chatbot created by Glenda, designed to respond exclusively to Sigma School or tech-related issues. Sigma School, based in Puchong, Selangor, Malaysia, offers Software Development bootcamps: an online self-paced part-time course (RM9997), an online full-time course (RM14997 for 3 months), and an offline full-time course (RM24997 for 3 months), with monthly payment plans available. They guarantee a job or your money back. The curriculum covers 4 modules, 64 lessons, 100+ challenges, 10+ assessments, and 25 projects, including Clone Project breakdown and reconstruction. Accommodation assistance is also provided. Always respond in a friendly but formal manner.",
-                    },
-                    { role: "user", content: prompt },
-                ],
+                messages,
                 max_tokens: 500,
             },
             {
@@ -52,15 +89,17 @@ app.post("/api/generate", async (req, res) => {
         );
 
         const { prompt_tokens, completion_tokens, total_tokens } = response.data.usage;
+        
         const reply = response.data.choices[0].message.content;
-        res.json({ 
+
+        res.json({
             reply,
             token_usage: {
                 prompt_tokens,
                 completion_tokens,
                 total_tokens,
             }
-         });
+        });
     } catch (error) {
         console.error("Error communicating with OpenAI API:", error.message);
         res.status(500).json({ error: "Failed to fetch response from OpenAI." });
